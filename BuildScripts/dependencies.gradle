@@ -1,0 +1,35 @@
+ext {
+    appCompat = "androidx.appcompat:appcompat:1.2.0-rc01"
+    appCompatResources = "androidx.appcompat:appcompat-resources:1.2.0-rc01"
+    swipeRefreshLayout = "androidx.swiperefreshlayout:swiperefreshlayout:1.0.0"
+    supportAnnotations = "com.android.support:support-annotations:1.0.2"
+    constraintLayout = "androidx.constraintlayout:constraintlayout:1.1.3"
+    material = "com.google.android.material:material:1.0.0"
+    lifecycleExtensions = "androidx.lifecycle:lifecycle-extensions:2.0.0"
+    androidXAnnotations = "androidx.annotation:annotation:1.0.1"
+    supportDesign = "com.android.support:design:27.0.2"
+    ktx = "androidx.core:core-ktx:1.0.1"
+    recyclerView = "androidx.recyclerview:recyclerview:1.1.0"
+    coordinatorLayout = "androidx.coordinatorlayout:coordinatorlayout:1.1.0"
+
+    kotlinStdLib = "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+
+    koinVersion = "2.0.1"
+    koin = "org.koin:koin-android:$koinVersion"
+    koinAndroidScope = "org.koin:koin-android-scope:$koinVersion"
+    koinCoreExt = "org.koin:koin-core-ext:$koinVersion"
+    gson = "com.google.code.gson:gson:2.8.2"
+
+
+    moshiVersion = "1.8.0"
+    moshi = "com.squareup.moshi:moshi:$moshiVersion"
+    moshiCodeGen = "com.squareup.moshi:moshi-kotlin-codegen:$moshiVersion"
+
+    junit = "junit:junit:4.12"
+    mockito = "org.mockito:mockito-core:2.23.4"
+    mockitoInline = "org.mockito:mockito-inline:2.23.4"
+    roboelectric = 'org.robolectric:robolectric:4.3'
+    androidXTest = 'androidx.test.espresso:espresso-core:3.1.0'
+    androidXTestExtJUnit = 'androidx.test.ext:junit:1.0.0'
+
+}
