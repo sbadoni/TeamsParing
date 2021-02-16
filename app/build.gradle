@@ -9,7 +9,7 @@ dependencies {
     implementation material
     implementation appCompat
     implementation constraintLayout
-
+    implementation gson
     // DI
     implementation koin
 

@@ -1,10 +1,7 @@
 package com.example.connectionhandler.source
 
 import android.util.Log
-import com.example.connectionhandler.data.Packet
-import com.example.connectionhandler.data.SEND_SETTINGS_REQUEST
-import com.example.connectionhandler.data.SEND_SETTINGS_RESPONSE
-import com.example.connectionhandler.data.Settings
+import com.example.connectionhandler.data.*
 import com.google.gson.Gson
 import java.io.*
 import java.net.Socket
@@ -12,35 +9,35 @@ import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.BlockingQueue
 
 private const val CLIENT_TAG = "CommunicationClient"
+private const val HEARTBEAT_TIME_IN_SEC = 12 * 1000 //In Sec
 
 class CommunicationClient(
-    private val client: Socket,
-    private val gSon: Gson
+    private val serverSocket: Socket,
+    private val gSon: Gson,
+    private val clientCallback: ClientCallback
 ) {
 
     private val mSendThread: Thread = Thread(SendingThread())
-    private var mRecThread: Thread? = null
-    val mMessageQueue: BlockingQueue<String> = ArrayBlockingQueue<String>(10)
+    private var mRecThread: Thread = Thread(ReceivingThread())
+    val mMessageQueue: BlockingQueue<String> = ArrayBlockingQueue(10)
+    private var lastResponseTime: Long = System.currentTimeMillis()
+    var isServerConnected = false
 
     init {
         mSendThread.start()
+        mRecThread.start()
+        isServerConnected = true
     }
 
     inner class SendingThread : Runnable {
 
         override fun run() {
-            try {
-                mRecThread = Thread(ReceivingThread())
-                mRecThread!!.start()
-            } catch (e: Exception) {
-                Log.d(CLIENT_TAG, "Initializing socket failed, IOE.", e)
-            }
-
-            while (true) {
+            while (!Thread.currentThread().isInterrupted) {
                 try {
                     val msg = mMessageQueue.take()
                     sendMessage(msg)
                 } catch (ie: InterruptedException) {
+                    tearDown()
                     Log.d(CLIENT_TAG, "Message sending loop interrupted, exiting")
                 }
             }
@@ -48,40 +45,13 @@ class CommunicationClient(
     }
 
     inner class ReceivingThread : Runnable {
-
         override fun run() {
-            val input: BufferedReader
             try {
-                input = BufferedReader(
-                    InputStreamReader(
-                        client.getInputStream()
-                    )
-                )
-                while (!Thread.currentThread().isInterrupted) {
-                    val messageStr: String? = input.readLine()
-                    if (messageStr != null) {
+                BufferedReader(InputStreamReader(serverSocket.getInputStream())).use { bufferReader ->
+                    var messageStr: String? = bufferReader.readLine()
+                    while (messageStr != null && !Thread.currentThread().isInterrupted) {
                         Log.d(CLIENT_TAG, "Read from the stream: $messageStr")
                         val message = gSon.fromJson(messageStr, Packet::class.java)
-                        message.request?.let { request ->
-                            when (request) {
-                                SEND_SETTINGS_REQUEST -> {
-                                    println("SEND_SETTINGS_REQUEST")
-                                    sendMessage(
-                                        gSon.toJson(
-                                            Packet(
-                                                response = SEND_SETTINGS_RESPONSE,
-                                                responseJson = gSon.toJson(
-                                                    Settings(
-                                                        "Mercury",
-                                                        ""
-                                                    )
-                                                )
-                                            )
-                                        )
-                                    )
-                                }
-                            }
-                        }
                         message.response?.let { response ->
                             when (response) {
                                 SEND_SETTINGS_RESPONSE -> {
@@ -89,33 +59,42 @@ class CommunicationClient(
                                         val settings = gSon.fromJson(it, Settings::class.java)
                                         println("GOT: DEVICE-NAME ${settings.deviceName}")
                                         println("GOT: OTHER-PROPERTIES ${settings.otherProperties}")
+                                        clientCallback.updateSettingSyncResponse(
+                                            SyncSettingsResponse.SUCCESS.ordinal,
+                                            null
+                                        )
+                                    } ?: kotlin.run {
+                                        clientCallback.updateSettingSyncResponse(
+                                            SyncSettingsResponse.FAILED.ordinal,
+                                            "Error while fetching the settings..."
+                                        )
                                     }
                                 }
                                 else -> println("Unknown Response...")
                             }
                         }
-                    } else {
-                        Log.d(CLIENT_TAG, "The null message...!")
-                        break
+                        messageStr = bufferReader.readLine()
+                        lastResponseTime = System.currentTimeMillis()
+                        println("sameer messageStr $messageStr")
                     }
                 }
-                input.close()
             } catch (e: Exception) {
-                Log.e(CLIENT_TAG, "Server loop error: ", e);
+                tearDown()
+                Log.e(CLIENT_TAG, "Server loop error: " + e.message)
             }
         }
     }
 
     fun sendMessage(msg: String) {
         try {
-            val socket = client
+            val socket = serverSocket
             if (socket.getOutputStream() == null) {
                 Log.d(CLIENT_TAG, "Socket output stream is null");
             }
 
             val out = PrintWriter(
                 BufferedWriter(
-                    OutputStreamWriter(client.getOutputStream())
+                    OutputStreamWriter(serverSocket.getOutputStream())
                 ), true
             )
             out.println(msg)
@@ -126,11 +105,36 @@ class CommunicationClient(
     }
 
     fun tearDown() {
+        mSendThread.interrupt()
+        mRecThread.interrupt()
         try {
-            client.close()
+            serverSocket.close()
+            isServerConnected = false
         } catch (ioe: IOException) {
             Log.e(CLIENT_TAG, "Error when closing server socket.")
         }
     }
+
+    inner class ClientHeartBeatReceiver : Runnable {
+        private var _loop = true
+        override fun run() {
+            while (_loop) {
+                println("System.currentTimeMillis() - lastResponseTime ${System.currentTimeMillis() - lastResponseTime}")
+                if (System.currentTimeMillis() - lastResponseTime > HEARTBEAT_TIME_IN_SEC) {
+                    tearDown()
+                    _loop = false
+                }
+                Thread.sleep(4000)
+            }
+            clientCallback.updateClientConnectivity(ParingStatus.UNPAIRED.ordinal)
+        }
+    }
+}
+
+interface ClientCallback {
+
+    fun updateSettingSyncResponse(result: Int, errorCode: String?)
+
+    fun updateClientConnectivity(isPaired: Int)
 }
 

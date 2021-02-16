@@ -7,7 +7,6 @@ import java.io.IOException
 import java.net.ServerSocket
 
 private const val TAG = "CommunicationServer"
-
 class CommunicationServer(private val gSon: Gson) {
     private var mServerSocket: ServerSocket? = null
     private var mThread: Thread = Thread(CommunicationServerThread())
@@ -34,10 +33,7 @@ class CommunicationServer(private val gSon: Gson) {
                     val client = mServerSocket!!.accept()
                     Log.d(TAG, "Connected.")
                     client?.let {
-                        CommunicationClient(
-                            it,
-                            gSon
-                        )
+                        ServerResponseHandler(it, gSon)
                     }
                 }
             } catch (e: Exception) {
