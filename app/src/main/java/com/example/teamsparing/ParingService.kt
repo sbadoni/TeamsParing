@@ -20,9 +20,9 @@ import kotlin.concurrent.thread
 
 private const val CONSOLE_ACTION = "com.microsoft.skype.teams.console.action"
 private const val CONSOLE_ACTION_RESULT = "com.microsoft.skype.teams.console.action.result"
-private const val ACK_ACTION = "com.microsoft.skype.teams.console.action.ack"
+private const val CONSOLE_ACTION_ACK = "com.microsoft.skype.teams.console.action.ack"
 private const val OEM_ACTION = "com.microsoft.skype.teams.console.oem.action"
-private const val OEM_ACTION_NAME = "pairingStatusUpdated"
+private const val OEM_ACTION_TYPE = "pairingStatusUpdated"
 private const val CONSOLE_ACTION_NAME = "actionName"
 private const val CONSOLE_ACTION_TYPE_PAIR = "pair"
 private const val CONSOLE_ACTION_TYPE_UNPAIR = "unpair"
@@ -34,7 +34,7 @@ private const val TAG = "ParingService"
 class ParingService : Service() {
     private var serviceLooper: Looper? = null
     private val mCommunicationChannel: CommunicationChannel by inject()
-    private val gson: Gson by inject()
+    private val gSon: Gson by inject()
     private lateinit var mServiceHandler: Handler
     private var correlationId: String? = null
     override fun onCreate() {
@@ -60,7 +60,7 @@ class ParingService : Service() {
                             println("isPaired = $isPaired")
                             sendBroadcast(Intent(OEM_ACTION).apply {
                                 putExtra("correlationId", correlationId)
-                                putExtra("actionName", OEM_ACTION_NAME)
+                                putExtra("actionName", OEM_ACTION_TYPE)
                                 putExtra("pairingStatus", isPaired)
                             })
                         }
@@ -120,6 +120,7 @@ class ParingService : Service() {
     private val mTeamsParingReceiver = object : BroadcastReceiver() {
         override fun onReceive(p0: Context?, intent: Intent?) {
             println("sameer ${intent?.action}")
+            //TODO do we need to store the correlationId and do we need to compare the correlationId with the stored one
             intent?.let { intent ->
                 when (intent.action) {
                     CONSOLE_ACTION -> {
@@ -128,7 +129,12 @@ class ParingService : Service() {
                             val actionDetails = intent.getStringExtra(CONSOLE_ACTION_DETAILS)
                             actionDetails?.let { details ->
                                 correlationId = intent.getStringExtra(CONSOLE_ACTION_CORRELATION_ID)
-                                connectToRoom(gson.fromJson(details, ParingDetail::class.java))
+                                connectToRoom(
+                                    gSon.fromJson(
+                                        details,
+                                        RemoteRoomDeviceDetail::class.java
+                                    )
+                                )
                             }
                         }
                         if (actionType == CONSOLE_ACTION_TYPE_CHECK_PARING_STATUS) {
@@ -146,17 +152,15 @@ class ParingService : Service() {
         }
     }
 
-    private fun connectToRoom(paringDetails: ParingDetail) {
+    private fun connectToRoom(remoteRoomDeviceDetails: RemoteRoomDeviceDetail) {
         mCommunicationChannel.tearDown()
-        thread { mCommunicationChannel.connectToServer(paringDetails.roomDeviceIPAddress) }
-        sendBroadcast(Intent(ACK_ACTION))
+        thread { mCommunicationChannel.connectToRoomDevice(remoteRoomDeviceDetails.roomDeviceIPAddress) }
+        sendBroadcast(Intent(CONSOLE_ACTION_ACK))
     }
 
     private fun checkParingStatus() =
         sendBroadcast(Intent(CONSOLE_ACTION_RESULT).apply {
             putExtra("correlationId", correlationId)
-            val checkRoom = mCommunicationChannel.isRoomConnected()
-            println("sameer checkRoom $checkRoom")
             putExtra(
                 "result",
                 if (mCommunicationChannel.isRoomConnected()) ParingStatus.PAIRED.ordinal else ParingStatus.UNPAIRED.ordinal
@@ -164,9 +168,10 @@ class ParingService : Service() {
         })
 
     private fun unPairConnection() {
-        sendBroadcast(Intent(ACK_ACTION).apply {
+        mCommunicationChannel.setIsUserInitiatedTearDown(true)
+        sendBroadcast(Intent(CONSOLE_ACTION_ACK).apply {
             putExtra("correlationId", correlationId)
-            putExtra("actionName", OEM_ACTION_NAME)
+            putExtra("actionName", OEM_ACTION_TYPE)
         })
         mCommunicationChannel.tearDown()
     }

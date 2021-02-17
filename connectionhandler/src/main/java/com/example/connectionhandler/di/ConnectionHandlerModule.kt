@@ -8,4 +8,5 @@ import org.koin.dsl.module
 val ConnectionHandlerModule = module {
     single { Gson() }
     single<CommunicationChannel> { CommunicationChannelImpl(get()) }
+    //single { RoomServer(get()) } // This will start Server in both Room device and console. We have to find a way to start server only in case of room (If)
 }

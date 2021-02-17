@@ -4,7 +4,7 @@ import android.os.Bundle
 import android.os.Handler
 import com.example.connectionhandler.data.PORT
 import com.example.connectionhandler.data.Packet
-import com.example.connectionhandler.data.SEND_SETTINGS_REQUEST
+import com.example.connectionhandler.data.SYNC_SETTINGS_REQUEST
 import com.example.connectionhandler.data.SyncSettingsResponse
 import com.google.gson.Gson
 import java.net.InetAddress
@@ -15,36 +15,37 @@ private const val TAG = "CommunicationChannel"
 
 class CommunicationChannelImpl(private val gSon: Gson) : CommunicationChannel {
 
-    private var mCommunicationClient: CommunicationClient? = null
-    private lateinit var mUpdateHandler: Handler
-    private lateinit var serverSocket: Socket
+    private var consoleClient: ConsoleClient? = null
+    private lateinit var paringServiceUpdateHandler: Handler
+    private lateinit var roomServerSocket: Socket
+    private var isUserInitiatedTearDown = false
 
-    private val clientResponseHandler = object : ClientCallback {
+    private val consoleCallbackHandler = object : ConsoleCallback {
         override fun updateSettingSyncResponse(result: Int, errorCode: String?) =
             updateMessages(createSettingSyncBundle(1, result, errorCode))
 
-        override fun updateClientConnectivity(isPaired: Int) {
-            val messageBundle = Bundle()
-            messageBundle.putInt("requestType", 2)
-            messageBundle.putInt("isPaired", isPaired)
-            updateMessages(messageBundle)
-        }
-
-    }
-
-    override fun init(updateHandler: Handler) {
-        mUpdateHandler = updateHandler
-        CommunicationServer(gSon)
-    }
-
-    override fun connectToServer(ipAddress: String) {
-        try {
-            serverSocket = Socket(InetAddress.getByName(ipAddress), PORT)
-            mCommunicationClient = CommunicationClient(serverSocket, gSon, clientResponseHandler)
-            sendMessage(gSon.toJson(Packet(SEND_SETTINGS_REQUEST)))
-            mCommunicationClient?.let {
-                Thread(it.ClientHeartBeatReceiver()).start()
+        override fun updateRoomServerConnectivity(isPaired: Int) {
+            println("sameer isUserInitiatedTearDown $isUserInitiatedTearDown")
+            if (isUserInitiatedTearDown.not()) {
+                val messageBundle = Bundle()
+                messageBundle.putInt("requestType", 2)
+                messageBundle.putInt("isPaired", isPaired)
+                updateMessages(messageBundle)
             }
+        }
+    }
+
+    override fun init(paringServiceHandler: Handler) {
+        paringServiceUpdateHandler = paringServiceHandler
+        RoomServer(gSon)
+    }
+
+    override fun connectToRoomDevice(ipAddress: String) {
+        try {
+            setIsUserInitiatedTearDown(false)
+            roomServerSocket = Socket(InetAddress.getByName(ipAddress), PORT)
+            consoleClient = ConsoleClient(roomServerSocket, gSon, consoleCallbackHandler)
+            sendMessage(gSon.toJson(Packet(SYNC_SETTINGS_REQUEST)))
         } catch (e: Exception) {
             updateMessages(
                 createSettingSyncBundle(
@@ -57,21 +58,26 @@ class CommunicationChannelImpl(private val gSon: Gson) : CommunicationChannel {
     }
 
     override fun sendMessage(message: String) {
-        mCommunicationClient?.mMessageQueue?.put(message)
+        consoleClient?.putMessage(message)
     }
 
     override fun tearDown() {
-        mCommunicationClient?.tearDown()
+        consoleClient?.tearDown()
+        consoleClient = null
     }
 
-    override fun isRoomConnected(): Boolean = mCommunicationClient?.isServerConnected ?: false
+    override fun isRoomConnected(): Boolean = consoleClient?.isRoomDeviceConnected ?: false
+
+    override fun setIsUserInitiatedTearDown(flag: Boolean) {
+        isUserInitiatedTearDown = flag
+    }
 
 
     @Synchronized
     private fun updateMessages(messageBundle: Bundle) {
-        val message = mUpdateHandler.obtainMessage()
+        val message = paringServiceUpdateHandler.obtainMessage()
         message.data = messageBundle
-        mUpdateHandler.sendMessage(message)
+        paringServiceUpdateHandler.sendMessage(message)
     }
 
     private fun createSettingSyncBundle(requestType: Int, result: Int, errorCode: String?): Bundle =

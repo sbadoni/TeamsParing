@@ -4,13 +4,15 @@ import android.os.Handler
 
 interface CommunicationChannel {
 
-    fun init(updateHandler: Handler)
+    fun init(paringServiceHandler: Handler)
 
-    fun connectToServer(ipAddress: String)
+    fun connectToRoomDevice(ipAddress: String)
 
     fun sendMessage(message: String)
 
     fun tearDown()
 
     fun isRoomConnected(): Boolean
+
+    fun setIsUserInitiatedTearDown(flag: Boolean)
 }

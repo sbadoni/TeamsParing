@@ -8,49 +8,52 @@ import java.net.Socket
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.BlockingQueue
 
-private const val CLIENT_TAG = "CommunicationClient"
+private const val CONSOLE_TAG = "Console"
 private const val HEARTBEAT_TIME_IN_SEC = 12 * 1000 //In Sec
 
-class CommunicationClient(
-    private val serverSocket: Socket,
+class ConsoleClient(
+    private val connectedRoomSocket: Socket,
     private val gSon: Gson,
-    private val clientCallback: ClientCallback
+    private val consoleCallback: ConsoleCallback
 ) {
 
-    private val mSendThread: Thread = Thread(SendingThread())
-    private var mRecThread: Thread = Thread(ReceivingThread())
-    val mMessageQueue: BlockingQueue<String> = ArrayBlockingQueue(10)
+    private val senderThread: Thread = Thread(SenderRunnable())
+    private val receiverThread: Thread = Thread(ReceiverRunnable())
+    private val heartBeatReceiver: Thread = Thread(ConsoleHeartBeatReceiver())
+    private val sendingMessageQueue: BlockingQueue<String> = ArrayBlockingQueue(10)
+    private val outPrintWriter: PrintWriter =
+        PrintWriter(BufferedWriter(OutputStreamWriter(connectedRoomSocket.getOutputStream())), true)
     private var lastResponseTime: Long = System.currentTimeMillis()
-    var isServerConnected = false
+    var isRoomDeviceConnected = true
 
     init {
-        mSendThread.start()
-        mRecThread.start()
-        isServerConnected = true
+        senderThread.start()
+        receiverThread.start()
+        heartBeatReceiver.start()
     }
 
-    inner class SendingThread : Runnable {
+    inner class SenderRunnable : Runnable {
 
         override fun run() {
             while (!Thread.currentThread().isInterrupted) {
                 try {
-                    val msg = mMessageQueue.take()
+                    val msg = sendingMessageQueue.take()
                     sendMessage(msg)
                 } catch (ie: InterruptedException) {
                     tearDown()
-                    Log.d(CLIENT_TAG, "Message sending loop interrupted, exiting")
+                    Log.d(CONSOLE_TAG, "Message sending loop interrupted, exiting")
                 }
             }
         }
     }
 
-    inner class ReceivingThread : Runnable {
+    inner class ReceiverRunnable : Runnable {
         override fun run() {
             try {
-                BufferedReader(InputStreamReader(serverSocket.getInputStream())).use { bufferReader ->
+                BufferedReader(InputStreamReader(connectedRoomSocket.getInputStream())).use { bufferReader ->
                     var messageStr: String? = bufferReader.readLine()
                     while (messageStr != null && !Thread.currentThread().isInterrupted) {
-                        Log.d(CLIENT_TAG, "Read from the stream: $messageStr")
+                        Log.d(CONSOLE_TAG, "Read from the stream: $messageStr")
                         val message = gSon.fromJson(messageStr, Packet::class.java)
                         message.response?.let { response ->
                             when (response) {
@@ -59,12 +62,12 @@ class CommunicationClient(
                                         val settings = gSon.fromJson(it, Settings::class.java)
                                         println("GOT: DEVICE-NAME ${settings.deviceName}")
                                         println("GOT: OTHER-PROPERTIES ${settings.otherProperties}")
-                                        clientCallback.updateSettingSyncResponse(
+                                        consoleCallback.updateSettingSyncResponse(
                                             SyncSettingsResponse.SUCCESS.ordinal,
                                             null
                                         )
                                     } ?: kotlin.run {
-                                        clientCallback.updateSettingSyncResponse(
+                                        consoleCallback.updateSettingSyncResponse(
                                             SyncSettingsResponse.FAILED.ordinal,
                                             "Error while fetching the settings..."
                                         )
@@ -75,66 +78,63 @@ class CommunicationClient(
                         }
                         messageStr = bufferReader.readLine()
                         lastResponseTime = System.currentTimeMillis()
-                        println("sameer messageStr $messageStr")
                     }
                 }
             } catch (e: Exception) {
                 tearDown()
-                Log.e(CLIENT_TAG, "Server loop error: " + e.message)
+                Log.e(CONSOLE_TAG, "Server loop error: " + e.message)
             }
         }
     }
 
-    fun sendMessage(msg: String) {
+    private fun sendMessage(msg: String) =
         try {
-            val socket = serverSocket
-            if (socket.getOutputStream() == null) {
-                Log.d(CLIENT_TAG, "Socket output stream is null");
-            }
-
-            val out = PrintWriter(
-                BufferedWriter(
-                    OutputStreamWriter(serverSocket.getOutputStream())
-                ), true
-            )
-            out.println(msg)
-            out.flush()
+            outPrintWriter.println(msg)
+            outPrintWriter.flush()
         } catch (e: Exception) {
-            Log.d(CLIENT_TAG, "Error", e);
+            Log.d(CONSOLE_TAG, "Error while writing into the socket", e)
         }
-    }
 
     fun tearDown() {
-        mSendThread.interrupt()
-        mRecThread.interrupt()
+        senderThread.interrupt()
+        receiverThread.interrupt()
+        heartBeatReceiver.interrupt()
         try {
-            serverSocket.close()
-            isServerConnected = false
+            outPrintWriter.close()
+            connectedRoomSocket.close()
+            isRoomDeviceConnected = false
         } catch (ioe: IOException) {
-            Log.e(CLIENT_TAG, "Error when closing server socket.")
+            Log.e(CONSOLE_TAG, "Error when closing server socket.")
         }
     }
 
-    inner class ClientHeartBeatReceiver : Runnable {
+    inner class ConsoleHeartBeatReceiver : Runnable {
         private var _loop = true
         override fun run() {
-            while (_loop) {
-                println("System.currentTimeMillis() - lastResponseTime ${System.currentTimeMillis() - lastResponseTime}")
-                if (System.currentTimeMillis() - lastResponseTime > HEARTBEAT_TIME_IN_SEC) {
-                    tearDown()
-                    _loop = false
+            try {
+                while (_loop) {
+                    println("System.currentTimeMillis() - lastResponseTime ${System.currentTimeMillis() - lastResponseTime}")
+                    if (System.currentTimeMillis() - lastResponseTime > HEARTBEAT_TIME_IN_SEC) {
+                        consoleCallback.updateRoomServerConnectivity(ParingStatus.UNPAIRED.ordinal)
+                        tearDown()
+                        _loop = false
+                    }
+                    Thread.sleep(4000)
                 }
-                Thread.sleep(4000)
+
+            } catch (e: Exception) {
+                Log.e(CONSOLE_TAG, "Heartbeat interrupted")
             }
-            clientCallback.updateClientConnectivity(ParingStatus.UNPAIRED.ordinal)
         }
     }
+
+    fun putMessage(message: String) = sendingMessageQueue.put(message)
 }
 
-interface ClientCallback {
+interface ConsoleCallback {
 
     fun updateSettingSyncResponse(result: Int, errorCode: String?)
 
-    fun updateClientConnectivity(isPaired: Int)
+    fun updateRoomServerConnectivity(isPaired: Int)
 }
 

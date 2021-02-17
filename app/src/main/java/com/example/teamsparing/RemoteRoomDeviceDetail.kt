@@ -1,6 +1,6 @@
 package com.example.teamsparing
 
-data class ParingDetail(
+data class RemoteRoomDeviceDetail(
     val roomDeviceIPAddress: String,
     val roomDeviceHardwareAddress: String
 )
